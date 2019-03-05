@@ -53,11 +53,53 @@
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))
 
 // private variables and functions
-static char *heap_listp;                   // heap pointer
-static void *extend_heap(size_t size);     // extend the heap
-static void *coalesce(void *bp);           // coalesce the free blocks
-static void *find_fit(size_t size);        // search the free list for a fit
-static void *place(void *bp, size_t size); // place the block pointer
+static char *heap_listp;                  // heap pointer
+static void *extend_heap(size_t size);    // extend the heap
+static void *coalesce(void *bp);          // coalesce the free blocks
+static void *find_fit(size_t size);       // search the free list for a fit
+static void place(void *bp, size_t size); // place the block pointer
+
+// search the free list for a fit
+// first fit
+static void *find_fit(size_t size)
+{
+    char *bp = heap_listp;
+    size_t thissize = GET_SIZE(HDRP(bp));
+    size_t nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+
+    while (thissize >= size && !GET_ALLOC(HDRP(bp)) && nextsize)
+    {
+        bp = NEXT_BLKP(bp);
+        thissize = GET_SIZE(HDRP(bp));
+        nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    }
+
+    if (!nextsize)
+        return NULL;
+
+    return bp;
+}
+
+// place the block pointer
+static void place(void *bp, size_t size)
+{
+    size_t totalsize = GET_SIZE(HDRP(bp));
+    size_t lastsize = totalsize - size;
+
+    if (lastsize >= (2 * DSIZE))
+    {
+        PUT(HDRP(bp), PACK(size, 1));
+        PUT(FTRP(bp), PACK(size, 1));
+
+        PUT(HDRP(NEXT_BLKP(bp)), PACK(lastsize, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(lastsize, 0));
+    }
+    else
+    {
+        PUT(HDRP(bp), PACK(size, 1));
+        PUT(FTRP(bp), PACK(size, 1));
+    }
+}
 
 // extend the heap
 static void *extend_heap(size_t words)
