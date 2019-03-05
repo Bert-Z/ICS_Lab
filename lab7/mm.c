@@ -42,7 +42,7 @@
 
 // Read the size and allocated fields from address p
 #define GET_SIZE(p) (GET(p) & ~0x7)
-#define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_ALLOC(p) (GET(p) & 0x1) // 1->allocated 0->free
 
 // Given block_pointer bp, compute address of next and previous blocks
 #define HDRP(bp) ((char *)(bp)-WSIZE)
@@ -53,9 +53,11 @@
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))
 
 // private variables and functions
-static char *heap_listp;               // heap pointer
-static void *extend_heap(size_t size); // extend the heap
-static void *coalesce(void *bp);       // coalesce the free blocks
+static char *heap_listp;                   // heap pointer
+static void *extend_heap(size_t size);     // extend the heap
+static void *coalesce(void *bp);           // coalesce the free blocks
+static void *find_fit(size_t size);        // search the free list for a fit
+static void *place(void *bp, size_t size); // place the block pointer
 
 // extend the heap
 static void *extend_heap(size_t words)
@@ -69,8 +71,8 @@ static void *extend_heap(size_t words)
         return NULL;
 
     // Initialize free block header/footer and the epilogue header
-    PUT(HDRP(bp), PACK(size, 1));
-    PUT(FTRP(bp), PACK(size, 1));
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
 
     // Coalesce if the previous block was free
@@ -80,35 +82,36 @@ static void *extend_heap(size_t words)
 // coalesce the free blocks
 static void *coalesce(void *bp)
 {
+    // 1->allocated 0->free
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
-    if (prev_alloc && next_alloc)
+    if (prev_alloc && next_alloc) // all allocated
     {
         return bp;
     }
-    else if (prev_alloc && !next_alloc)
+    else if (prev_alloc && !next_alloc) // next is free
     {
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
-    else if (!prev_alloc && next_alloc)
+    else if (!prev_alloc && next_alloc) // prev is free
     {
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    else
+    else // all free
     {
         size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    
+
     return bp;
 }
 
@@ -139,15 +142,33 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
+    size_t asize;      // adjust block size
+    size_t extendsize; // amount to extend heap if no fit
+    char *bp;
+
+    // ignore spurious requests
+    if (size == 0)
         return NULL;
+
+    // adjust block size to include overhead and alignment reqs
+    if (size <= DSIZE)
+        asize = 2 * DSIZE;
     else
+        asize = DSIZE * ((size + DSIZE + DSIZE - 1) / DSIZE);
+
+    // search the free list for a fit
+    if ((bp = find_fit(asize)) != NULL)
     {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
+        place(bp, asize);
+        return bp;
     }
+
+    // No fit found. Get more memory and place the block
+    extendsize = MAX(CHUNKSIZE, asize);
+    if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
+        return NULL;
+    place(bp, asize);
+    return bp;
 }
 
 /*
