@@ -63,21 +63,31 @@ static void place(void *bp, size_t size); // place the block pointer
 // first fit
 static void *find_fit(size_t size)
 {
-    char *bp = heap_listp;
-    size_t thissize = GET_SIZE(HDRP(bp));
-    size_t nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    // char *bp = heap_listp;
+    // size_t thissize = GET_SIZE(HDRP(bp));
+    // size_t nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
 
-    while (thissize >= size && !GET_ALLOC(HDRP(bp)) && nextsize)
-    {
-        bp = NEXT_BLKP(bp);
-        thissize = GET_SIZE(HDRP(bp));
-        nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    // while (thissize >= size && !GET_ALLOC(HDRP(bp)) && nextsize)
+    // {
+    //     bp = NEXT_BLKP(bp);
+    //     thissize = GET_SIZE(HDRP(bp));
+    //     nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    // }
+
+    // if (!nextsize)
+    //     return NULL;
+
+    // return bp;
+
+    void *bp;
+
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0;bp=NEXT_BLKP(bp)){
+        if(!GET_ALLOC(HDRP(bp))&&(size<=GET_SIZE(HDRP(bp)))){
+            return bp;
+        }
     }
 
-    if (!nextsize)
-        return NULL;
-
-    return bp;
+    return NULL;
 }
 
 // place the block pointer
@@ -90,9 +100,9 @@ static void place(void *bp, size_t size)
     {
         PUT(HDRP(bp), PACK(size, 1));
         PUT(FTRP(bp), PACK(size, 1));
-
-        PUT(HDRP(NEXT_BLKP(bp)), PACK(lastsize, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(lastsize, 0));
+        bp = NEXT_BLKP(bp);
+        PUT(HDRP(bp), PACK(lastsize, 0));
+        PUT(FTRP(bp), PACK(lastsize, 0));
     }
     else
     {
@@ -172,7 +182,7 @@ int mm_init(void)
     heap_listp += (2 * WSIZE);                   //move the heap pointer to the end of the head
 
     // Extend the empty heap with a free block of CHUNKSIZE bytes
-    if (extend_heap(CHUNKSIZE / WSIZE))
+    if (extend_heap(CHUNKSIZE / WSIZE)==NULL)
         return -1;
 
     return 0;
@@ -196,7 +206,7 @@ void *mm_malloc(size_t size)
     if (size <= DSIZE)
         asize = 2 * DSIZE;
     else
-        asize = DSIZE * ((size + DSIZE + DSIZE - 1) / DSIZE);
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
 
     // search the free list for a fit
     if ((bp = find_fit(asize)) != NULL)
