@@ -332,9 +332,9 @@ int main(int argc, char **argv)
         printf("perfidx:%.0f\n", perfindex);
     }
 
-    printf("mm_check: ");
-    mm_check();
-    printf("\n");
+    // printf("mm_check: ");
+    // mm_check();
+    // printf("\n");
 
     exit(0);
 }
