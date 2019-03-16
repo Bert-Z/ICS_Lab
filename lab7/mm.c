@@ -63,17 +63,25 @@ static void place(void *bp, size_t asize); // place the block pointer
 // first fit
 static void *find_fit(size_t asize)
 {
-
+	int count=0;
     void *bp;
+	void *best;
 
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
     {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
         {
-            return bp;
+			count++;
+			if(count==1){
+				best=bp;
+			}
+			if(GET_SIZE(HDRP(bp))<GET_SIZE(HDRP(best))){
+				best=bp;
+			}
         }
     }
-
+	if(count!=0)
+		return best;
     return NULL;
 }
 
