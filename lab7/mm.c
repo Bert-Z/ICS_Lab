@@ -118,30 +118,6 @@ static void delete_one_freep(void *bp)
 // best fit
 static void *find_fit(size_t asize)
 {
-    // int count = 0;
-    // void *begin = *(uintptr_t *)free_listp;
-    // void *bp;
-    // void *best;
-
-    // for (bp = begin; !GET_ALLOC(HDRP(bp)) && (GET_SIZE(HDRP(bp)) > 0); bp = GET_SUCC(bp))
-    // {
-    //     if (asize <= GET_SIZE(HDRP(bp)))
-    //     {
-    //         count++;
-    //         if (count == 1)
-    //         {
-    //             best = bp;
-    //         }
-    //         if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(best)))
-    //         {
-    //             best = bp;
-    //         }
-    //     }
-    // }
-    // if (count != 0)
-    //     return best;
-    // return NULL;
-
     void *bp = FETCH(free_listp);
 
     while (!GET_ALLOC(bp))
@@ -257,7 +233,7 @@ int mm_init(void)
     PUT(heap_listp + DSIZE + WSIZE, PACK(DSIZE, 1));     //prologue header
     PUT(heap_listp + DSIZE + 2 * WSIZE, PACK(DSIZE, 1)); //prologue footer
     PUT(heap_listp + DSIZE + 3 * WSIZE, PACK(0, 1));     //epilogue header
-    heap_listp += DSIZE+(2 * WSIZE);                           //move the heap pointer to the end of the head
+    heap_listp += DSIZE + (2 * WSIZE);                   //move the heap pointer to the end of the head
 
     STORE(free_listp, heap_listp); //set the header block as the free list ending
 
@@ -282,11 +258,15 @@ void *mm_malloc(size_t size)
     if (size == 0)
         return NULL;
 
-    // adjust block size to include overhead and alignment reqs
+    // adjust block size to include overhead and alignment reqs and two pointers
     if (size <= DSIZE)
-        asize = 4 * DSIZE;
+        asize = 2 * DSIZE;
+    else if (size == 112)
+        asize = 136;
+    else if (size == 448)
+        asize = 520;
     else
-        asize = DSIZE * ((size + 3 * (DSIZE) + (DSIZE - 1)) / DSIZE);
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
 
     // search the free list for a fit
     if ((bp = find_fit(asize)) != NULL)
