@@ -10,12 +10,10 @@
  * comment that gives a high level description of your solution.
  */
 #include <assert.h>
-#include <math.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <stdint.h>
 
 #include "memlib.h"
 #include "mm.h"
@@ -54,106 +52,106 @@
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp)-WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))
 
+// Get pred and succ address
+#define PRED(bp) ((char *)(bp))
+#define SUCC(bp) ((char *)(bp) + DSIZE)
+
 // Get pred and succ free pointer
-#define GET_PRED(bp) ((char *)(*(uintptr_t *)(bp)))
-#define GET_SUCC(bp) ((char *)(*(uintptr_t *)((char *)(bp) + DSIZE)))
+#define GET_PRED(bp) (*(uintptr_t *)(PRED(bp)))
+#define GET_SUCC(bp) (*(uintptr_t *)(SUCC(bp)))
 
-// Which index
-#define INDEXN(bp, n) ((char *)(bp) + (n * DSIZE))
-
-// Store an address at bp
-#define STORE(bp, address) (*(uintptr_t *)(bp) = (address))
+// Fetch and store an val at bp
+#define FETCH(bp) (*(uintptr_t *)(bp))
+#define STORE(bp, val) (*(uintptr_t *)(bp) = (val))
 
 // private variables and functions
-static void *heap_listp;                           // heap pointer
-static void *extend_heap(size_t size);             // extend the heap
-static void *coalesce(void *bp);                   // coalesce the free blocks
-static void *find_fit(size_t asize);               // search the free list for a fit
-static void place(void *bp, size_t asize);         // place the block pointer
-static void add_to_indexn(size_t index, void *bp); // add this bp's address to index n
-static void delete_one_freep(void *bp);            // malloc and coalesce need delete the freep
-static size_t get_index(size_t size);              // get the index
+static void *heap_listp;                   // heap pointer
+static void *extend_heap(size_t size);     // extend the heap
+static void *coalesce(void *bp);           // coalesce the free blocks
+static void *find_fit(size_t asize);       // search the free list for a fit
+static void place(void *bp, size_t asize); // place the block pointer
 
-// get the index
-static size_t get_index(size_t size)
+static void *free_listp;                // free list head pointer
+static void add_new_free(void *bp);     // add new free to free list
+static void delete_one_freep(void *bp); // malloc and coalesce need delete the freep
+
+// add new free to free list
+static void add_new_free(void *bp)
 {
-    size_t index = (size_t)ceil(log(size) / log(4));
-    if (index <= 12)
-        return index;
-    else
-        return 13;
+    uintptr_t next_address = FETCH(free_listp); // get the address stored in indexn at present
+
+    if (GET_ALLOC(HDRP(next_address)) == 0)       // if the original next not null
+        STORE(PRED(next_address), (uintptr_t)bp); // set the pred as bp
+
+    STORE(free_listp, (uintptr_t)bp);
+
+    STORE(PRED(bp), (uintptr_t)free_listp);
+    STORE(SUCC(bp), (uintptr_t)next_address);
 }
 
 // malloc and coalesce need delete the freep
 static void delete_one_freep(void *bp)
 {
     char *pred, *succ;
-    pred = GET_PRED(bp);                          // get the address of pred
-    succ = GET_SUCC(bp);                          // get the address of succ
-    STORE((char *)pred + DSIZE, (uintptr_t)succ); // set pred_pointer's succ as the address of succ_pointer
-    STORE((char *)succ, (uintptr_t)pred);         // set succ_pointer's pred as the address of pred_pointer
-}
+    pred = GET_PRED(bp); // get the address of pred
+    succ = GET_SUCC(bp); // get the address of succ
 
-// add this bp's address to index n
-static void add_to_indexn(size_t index, void *bp)
-{
-    uintptr_t next_address = *(uintptr_t *)(INDEXN(heap_listp, index)); // get the address stored in indexn at present
-    STORE(INDEXN(heap_listp, index), (uintptr_t)bp);                    // set the address stored in indexn
+    // set pred_pointer's succ as the address of succ_pointer
+    // if (pred == free_listp)
+    //     STORE(pred, (uintptr_t)succ);
+    // else
+    //     STORE((char *)pred + DSIZE, (uintptr_t)succ);
 
-    if (GET_SIZE(HDRP(next_address)) > 0)   // if the original next not null
-        STORE(next_address, (uintptr_t)bp); // set the pred as bp
+    // if (GET_ALLOC(HDRP(succ)) != 0)
+    //     STORE((char *)succ, (uintptr_t)pred); // set succ_pointer's pred as the address of pred_pointer
 
-    STORE(bp, (uintptr_t)INDEXN(heap_listp, index));      // set bp's pred -- indexn's address
-    STORE((char *)(bp) + DSIZE, (uintptr_t)next_address); // set bp's succ
+    if (pred == (uintptr_t)free_listp)
+        STORE(pred, succ);
+    else
+        STORE(SUCC(pred), succ);
+
+    if (GET_ALLOC(HDRP(succ)) == 0)
+        STORE(PRED(succ), pred);
 }
 
 // search the free list for a fit
 // best fit
 static void *find_fit(size_t asize)
 {
-    void *bp;
-    void *best;
-    void *first_free;
+    // int count = 0;
+    // void *begin = *(uintptr_t *)free_listp;
+    // void *bp;
+    // void *best;
 
-    size_t index = get_index(asize);
-
-    while (index <= 7)
-    {
-        int count = 0;
-        first_free = INDEXN(heap_listp, index);
-
-        for (bp = first_free; GET_SIZE(HDRP(bp)) > 0; bp = GET_SUCC(bp))
-        {
-            if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
-            {
-                count++;
-                if (count == 1)
-                    best = bp;
-
-                if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(best)))
-                    best = bp;
-            }
-        }
-        if (count != 0)
-            return best;
-
-        index++;
-    }
-
-    // for (bp = first_free; GET_SIZE(HDRP(bp)) > 0; bp = GET_SUCC(bp))
+    // for (bp = begin; !GET_ALLOC(HDRP(bp)) && (GET_SIZE(HDRP(bp)) > 0); bp = GET_SUCC(bp))
     // {
-    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
+    //     if (asize <= GET_SIZE(HDRP(bp)))
     //     {
     //         count++;
     //         if (count == 1)
+    //         {
     //             best = bp;
-
+    //         }
     //         if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(best)))
+    //         {
     //             best = bp;
+    //         }
     //     }
     // }
     // if (count != 0)
     //     return best;
+    // return NULL;
+
+    void *bp = FETCH(free_listp);
+
+    while (!GET_ALLOC(bp))
+    {
+        if (asize <= GET_SIZE(HDRP(bp)))
+        {
+            return bp;
+        }
+        bp = FETCH(SUCC(bp));
+    }
 
     return NULL;
 }
@@ -162,6 +160,7 @@ static void *find_fit(size_t asize)
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
+    delete_one_freep(bp);
 
     if ((csize - asize) >= (4 * DSIZE))
     {
@@ -170,8 +169,7 @@ static void place(void *bp, size_t asize)
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize - asize, 0));
         PUT(FTRP(bp), PACK(csize - asize, 0));
-        size_t index = get_index(csize - asize);
-        add_to_indexn(index, bp);
+        add_new_free(bp);
     }
     else
     {
@@ -194,6 +192,8 @@ static void *extend_heap(size_t words)
     // Initialize free block header/footer and the epilogue header
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
+    STORE(PRED(bp), 0);
+    STORE(SUCC(bp), 0);
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
 
     // Coalesce if the previous block was free
@@ -214,7 +214,6 @@ static void *coalesce(void *bp)
     else if (prev_alloc && !next_alloc) // next is free
     {
         delete_one_freep(NEXT_BLKP(bp));
-
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
@@ -222,7 +221,6 @@ static void *coalesce(void *bp)
     else if (!prev_alloc && next_alloc) // prev is free
     {
         delete_one_freep(PREV_BLKP(bp));
-
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
@@ -230,8 +228,8 @@ static void *coalesce(void *bp)
     }
     else // all free
     {
-        delete_one_freep(PREV_BLKP(bp));
         delete_one_freep(NEXT_BLKP(bp));
+        delete_one_freep(PREV_BLKP(bp));
 
         size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
@@ -239,8 +237,7 @@ static void *coalesce(void *bp)
         bp = PREV_BLKP(bp);
     }
 
-    size_t index = get_index(size);
-    add_to_indexn(index, bp);
+    add_new_free(bp);
 
     return bp;
 }
@@ -250,25 +247,19 @@ static void *coalesce(void *bp)
  */
 int mm_init(void)
 {
-    if ((heap_listp = mem_sbrk(10 * DSIZE)) == (void *)-1)
+    if ((heap_listp = mem_sbrk(6 * WSIZE)) == (void *)-1)
         return -1;
 
     PUT(heap_listp, 0); //alignment padding
 
-    // put free list into heap
-    STORE(heap_listp + WSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE));             // 0:1
-    STORE(heap_listp + WSIZE + 1 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 1:4
-    STORE(heap_listp + WSIZE + 2 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 2:16
-    STORE(heap_listp + WSIZE + 3 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 3:64
-    STORE(heap_listp + WSIZE + 4 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 4:256
-    STORE(heap_listp + WSIZE + 5 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 5:1024
-    STORE(heap_listp + WSIZE + 6 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 6:4096
-    STORE(heap_listp + WSIZE + 7 * DSIZE, (uintptr_t)((char *)heap_listp + 9 * DSIZE)); // 7:>4096
+    free_listp = heap_listp + WSIZE; //freelist block
 
-    PUT(heap_listp + 8 * DSIZE, PACK(DSIZE, 1));         //prologue header
-    PUT(heap_listp + 8 * DSIZE + WSIZE, PACK(DSIZE, 1)); //prologue footer
-    PUT(heap_listp + 9 * DSIZE, PACK(0, 1));             //epilogue header
-    heap_listp += WSIZE;
+    PUT(heap_listp + DSIZE + WSIZE, PACK(DSIZE, 1));     //prologue header
+    PUT(heap_listp + DSIZE + 2 * WSIZE, PACK(DSIZE, 1)); //prologue footer
+    PUT(heap_listp + DSIZE + 3 * WSIZE, PACK(0, 1));     //epilogue header
+    heap_listp += DSIZE+(2 * WSIZE);                           //move the heap pointer to the end of the head
+
+    STORE(free_listp, heap_listp); //set the header block as the free list ending
 
     // Extend the empty heap with a free block of CHUNKSIZE bytes
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
@@ -293,9 +284,9 @@ void *mm_malloc(size_t size)
 
     // adjust block size to include overhead and alignment reqs
     if (size <= DSIZE)
-        asize = 2 * DSIZE;
+        asize = 4 * DSIZE;
     else
-        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+        asize = DSIZE * ((size + 3 * (DSIZE) + (DSIZE - 1)) / DSIZE);
 
     // search the free list for a fit
     if ((bp = find_fit(asize)) != NULL)
@@ -321,8 +312,6 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-    size_t index = get_index(size);
-    add_to_indexn(index, bp);
     coalesce(bp);
 }
 
@@ -345,9 +334,3 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     return newptr;
 }
-
-// void mm_check()
-// {
-//     printf("%d\n", sizeof(uintptr_t));
-//     printf("%d", sizeof(char *));
-// }
