@@ -5,10 +5,10 @@
  *
  */
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 #include "memlib.h"
 #include "mm.h"
@@ -70,7 +70,9 @@ static void *free_listp;                // free list head pointer
 static void add_new_free(void *bp);     // add new free to free list
 static void delete_one_freep(void *bp); // malloc and coalesce need delete the freep
 
-static int flag = 0;
+// functions for realloc
+static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree);
+static void realloc_place(void *bp, size_t asize);
 
 // add new free to free list
 static void add_new_free(void *bp)
@@ -93,15 +95,6 @@ static void delete_one_freep(void *bp)
     pred = GET_PRED(bp); // get the address of pred
     succ = GET_SUCC(bp); // get the address of succ
 
-    // set pred_pointer's succ as the address of succ_pointer
-    // if (pred == free_listp)
-    //     STORE(pred, (uintptr_t)succ);
-    // else
-    //     STORE((char *)pred + DSIZE, (uintptr_t)succ);
-
-    // if (GET_ALLOC(HDRP(succ)) != 0)
-    //     STORE((char *)succ, (uintptr_t)pred); // set succ_pointer's pred as the address of pred_pointer
-
     if (pred == (uintptr_t)free_listp)
         STORE(pred, succ);
     else
@@ -111,8 +104,68 @@ static void delete_one_freep(void *bp)
         STORE(PRED(succ), pred);
 }
 
+// functions for realloc
+static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree)
+{
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+
+    /*coalesce the block and change the point*/
+    // set the block alloc for realloc_place
+    if (prev_alloc && next_alloc)
+    {
+    }
+    else if (prev_alloc && !next_alloc)
+    {
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        if (size >= newSize)
+        {
+            delete_one_freep(NEXT_BLKP(bp));
+            PUT(HDRP(bp), PACK(size, 1));
+            PUT(FTRP(bp), PACK(size, 1));
+            *isNextFree = 1;
+            return bp;
+        }
+    }
+    else if (!prev_alloc && next_alloc)
+    {
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        if (size >= newSize)
+        {
+            delete_one_freep(PREV_BLKP(bp));
+            PUT(FTRP(bp), PACK(size, 1));
+            PUT(HDRP(PREV_BLKP(bp)), PACK(size, 1));
+            bp = PREV_BLKP(bp);
+            return bp;
+        }
+    }
+    else
+    {
+        size += GET_SIZE(FTRP(NEXT_BLKP(bp))) + GET_SIZE(HDRP(PREV_BLKP(bp)));
+        if (size >= newSize)
+        {
+            delete_one_freep(PREV_BLKP(bp));
+            delete_one_freep(NEXT_BLKP(bp));
+            PUT(HDRP(PREV_BLKP(bp)), PACK(size, 1));
+            PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 1));
+            bp = PREV_BLKP(bp);
+            return bp;
+        }
+    }
+    return bp;
+}
+
+static void realloc_place(void *bp, size_t asize)
+{
+    size_t csize = GET_SIZE(HDRP(bp));
+
+    PUT(HDRP(bp), PACK(csize, 1));
+    PUT(FTRP(bp), PACK(csize, 1));
+}
+
 // search the free list for a fit
-// best fit
+// first fit
 static void *find_fit(size_t asize)
 {
     void *bp = FETCH(free_listp);
@@ -295,122 +348,62 @@ void mm_free(void *bp)
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
-// void *mm_realloc(void *ptr, size_t size)
-// {
-//     void *oldptr = ptr;
-//     void *newptr;
-
-//     if (size == 0)
-//     {
-
-//         mm_free(oldptr);
-
-//         return oldptr;
-//     }
-
-//     size_t asize;
-
-//     if (size <= DSIZE)
-//         asize = 2 * DSIZE;
-//     else
-//         asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
-
-//     // if (flag == 0)
-//     // {
-//     //     newptr = mm_malloc(size);
-//     //     if (newptr == NULL)
-//     //         return NULL;
-//     //     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-//     //     if (size < copySize)
-//     //         copySize = size;
-//     //     memcpy(newptr, oldptr, copySize);
-//     //     mm_free(oldptr);
-//     //     flag += 1;
-//     //     return newptr;
-//     // }
-//     // else
-//     // {
-//     if (oldptr == NULL)
-//     {
-//         return mm_malloc(asize);
-//     }
-//     else
-//     {
-//         size_t csize = GET_SIZE(HDRP(oldptr));
-
-//         if ((csize >= asize) && (csize < asize + 2 * DSIZE))
-//         {
-//             return oldptr;
-//         }
-//         else if (csize >= asize + 2 * DSIZE)
-//         {
-//             void *next = NEXT_BLKP(oldptr);
-//             size_t remainder = csize - asize;
-//             PUT(HDRP(oldptr), PACK(asize, 1));
-//             PUT(FTRP(oldptr), PACK(asize, 1));
-
-//             void *left = NEXT_BLKP(oldptr);
-//             PUT(HDRP(left), PACK(csize - asize, 0));
-//             PUT(FTRP(left), PACK(csize - asize, 0));
-//             add_new_free(left);
-
-//             coalesce(left);
-//             return oldptr;
-//         }
-//         else
-//         {
-//             void *next = NEXT_BLKP(oldptr);
-//             if (!GET_ALLOC(HDRP(next)))
-//             {
-//                 size_t next_size = GET_SIZE(HDRP(next));
-//                 if (csize + next_size >= asize)
-//                 {
-//                     if (csize + next_size < asize + 2 * DSIZE)
-//                     {
-//                         PUT(HDRP(oldptr), PACK((csize + next_size), 1));
-//                         PUT(FTRP(oldptr), PACK((csize + next_size), 1));
-//                         delete_one_freep(next);
-//                     }
-//                     else
-//                     {
-//                         size_t remainder = csize + next_size - asize;
-//                         void *left = oldptr + asize;
-//                         delete_one_freep(next);
-//                         add_new_free(left);
-//                         PUT(HDRP(oldptr), PACK(asize, 1));
-//                         PUT(FTRP(oldptr), PACK(asize, 1));
-//                         PUT(HDRP(left), PACK(remainder, 0));
-//                         PUT(FTRP(left), PACK(remainder, 0));
-//                     }
-//                     return oldptr;
-//                 }
-//             }
-
-//             newptr = mm_malloc(asize);
-//             if (newptr != oldptr)
-//                 memcpy(newptr, oldptr, csize - DSIZE);
-//             mm_free(oldptr);
-//             return newptr;
-//         }
-//     }
-//     // }
-// }
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
+    size_t oldsize = GET_SIZE(HDRP(ptr));
     void *newptr;
-    size_t copySize;
+    size_t asize;
 
-    newptr = mm_malloc(size + 256);
-    if (newptr == NULL)
-        return NULL;
+    if (size == 0)
+    {
+        mm_free(ptr);
+        return 0;
+    }
 
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-        copySize = size;
+    if (ptr == NULL)
+        return mm_malloc(size);
 
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+    /*compute the total size,which contanins header + footer + payload and fit the alignment requirement*/
+    if (size <= DSIZE)
+    {
+        asize = 2 * (DSIZE);
+    }
+    else
+    {
+        asize = (DSIZE) * ((size + (DSIZE) + (DSIZE - 1)) / (DSIZE));
+    }
 
-    return newptr;
+    if (oldsize == asize)
+        return ptr;
+
+    if (oldsize < asize)
+    {
+        int isnextFree = 0;
+        char *bp = realloc_coalesce(ptr, asize, &isnextFree);
+        if (isnextFree == 1)
+        { /*next block is free*/
+
+            realloc_place(bp, asize);
+            return bp;
+        }
+        else if (isnextFree == 0 && bp != ptr)
+        { /*previous block is free, move the point to new address,and move the payload*/
+            memcpy(bp, ptr, oldsize);
+            realloc_place(bp, asize);
+            return bp;
+        }
+        else
+        {
+            /*realloc_coalesce is fail*/
+            newptr = mm_malloc(size + 256);
+            memcpy(newptr, ptr, oldsize);
+            mm_free(ptr);
+            return newptr;
+        }
+    }
+    else
+    { /*just change the size of ptr*/
+        realloc_place(ptr, asize);
+        return ptr;
+    }
 }
