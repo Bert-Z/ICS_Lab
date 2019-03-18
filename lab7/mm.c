@@ -1,8 +1,29 @@
 /*
  * mm.c - a simple allocator with an explicit free list
  * 
- * In this approach, I just trying to use an explicit free list.
- *
+ * The heap structure:
+ *  ____________________________
+ * |____________0_______________|   WSIZE
+ * |       freelist pointer     |   DSIZE
+ * |____________________________|
+ * |___________8/1______________|   WSIZE
+ * |___________8/1______________|   WSIZE
+ * |            .               |
+ * |            .               |
+ * |            .               |
+ * |            .               |
+ * |            .               |
+ * |            .               |
+ * |___________0/1______________|   WSIZE
+ * 
+ * 
+ * The free list pointer store the address of the first free block in the freelist.
+ * The payload structure and the free block are designed from the description in the textbook.
+ * The free block has the header, footer, pred pointer, succ pointer. And the least free block size is 4*DSIZE, for pred and succ are both 1 DSIZE.
+ * The pred and succ pointer store the related free blocks' addresses.
+ * 
+ * For the optimization of the mm_realloc, I just try to coalesce the neighbour free block to less the times of extern the heap.
+ * 
  */
 #include <assert.h>
 #include <stdint.h>
@@ -346,7 +367,7 @@ void mm_free(void *bp)
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * mm_realloc - optimize the realloc with coalesce the neighbour free block
  */
 void *mm_realloc(void *ptr, size_t size)
 {
@@ -363,7 +384,7 @@ void *mm_realloc(void *ptr, size_t size)
     if (ptr == NULL)
         return mm_malloc(size);
 
-    /*compute the total size,which contanins header + footer + payload and fit the alignment requirement*/
+    // compute the total size,which contanins header + footer + payload and fit the alignment requirement
     if (size <= DSIZE)
     {
         asize = 2 * (DSIZE);
@@ -381,20 +402,20 @@ void *mm_realloc(void *ptr, size_t size)
         int isnextFree = 0;
         char *bp = realloc_coalesce(ptr, asize, &isnextFree);
         if (isnextFree == 1)
-        { /*next block is free*/
+        { // next block is free
 
             realloc_place(bp, asize);
             return bp;
         }
         else if (isnextFree == 0 && bp != ptr)
-        { /*previous block is free, move the point to new address,and move the payload*/
+        { // previous block is free, move the point to new address,and move the payload
             memcpy(bp, ptr, oldsize);
             realloc_place(bp, asize);
             return bp;
         }
         else
         {
-            /*realloc_coalesce is fail*/
+            // realloc_coalesce is fail
             newptr = mm_malloc(size + 256);
             memcpy(newptr, ptr, oldsize);
             mm_free(ptr);
@@ -402,8 +423,22 @@ void *mm_realloc(void *ptr, size_t size)
         }
     }
     else
-    { /*just change the size of ptr*/
+    { // just change the size of ptr
         realloc_place(ptr, asize);
         return ptr;
     }
 }
+
+// int mm_check(char *function)
+// {
+//     printf("---cur function:%s empty blocks:\n", function);
+//     char *tmpP = GET(heap_listp);
+//     int count_empty_block = 0;
+//     while (tmpP != NULL)
+//     {
+//         count_empty_block++;
+//         printf("address：%x size:%d \n", tmpP, GET_SIZE(HDRP(tmpP)));
+//         tmpP = GET(NEXT_BLKP(tmpP));
+//     }
+//     printf("empty_block num: %d\n", count_empty_block);
+// }
