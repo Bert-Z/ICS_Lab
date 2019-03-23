@@ -22,6 +22,7 @@ static int misses = 0;
 static int evictions = 0;
 
 static void getInput(int argc, char *argv[]);
+static int readTraceFile(char *filename);
 
 static void getInput(int argc, char *argv[])
 {
@@ -65,9 +66,31 @@ static void getInput(int argc, char *argv[])
     }
 }
 
+static int readTraceFile(char *filename)
+{
+    FILE *trace;
+    char traceLine[1024];
+
+    if ((trace = fopen(filename, "r")) == NULL)
+    {
+        printf("error");
+        return -1;
+    }
+
+    while (!feof(trace))
+    {
+        fgets(traceLine, 1024, trace);
+        printf("%s", traceLine);
+    }
+
+    fclose(trace);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     getInput(argc, argv);
+    readTraceFile(_t);
 
     printSummary(hits, misses, evictions);
     return 0;
