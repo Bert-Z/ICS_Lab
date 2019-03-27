@@ -13,9 +13,13 @@
 
 #include "cachelab.h"
 
-#define ISVALIDE(x) (x & (1UL << 63))
-#define SETVALIDE(x) (x | (1UL << 63))
-#define ISHIT(x)
+#define RECENTUP(x) ((*(int *)((char *)(x + 1)))++)
+#define ADDRESS(x) (*(unsigned long *)((char *)(x + 5)))
+#define RECENT(x) (*(int *)((char *)(x + 1)))
+#define SETADDRESS(x, val) (*(unsigned long *)((char *)(x + 5)) = val)
+#define SETRECENT(x, val) (*(int *)((char *)(x + 1)) = val)
+#define GETVALID(x) (*(char *)((char *)(x)))
+#define SETVALID(x) ((*(char *)((char *)(x))) = '1') // set the address valid
 
 static int _v = 0;         // Has -v ?
 static int _s = 0;         // Number of set index bits.
@@ -24,65 +28,224 @@ static int _b = 0;         // Number of block offset bits.
 static char _t[20];        // Trace file.
 static char *cache = NULL; // Cache memory
 static int SetNumber = 0;  // Number of sets
-static int cachesize = 0;
+static int cachesize = 0;  // size of cache
 
 static int hits = 0;
 static int misses = 0;
 static int evictions = 0;
 
-static void getInput(int argc, char *argv[]);
-static int readTraceFile(char *filename);
-static void initCache();
-static int isHit(long address);
-static long getAddress(char *traceline);
+static void getInput(int argc, char *argv[]); // catch the command of the input
+static void initCache();                      // init the cache in memmory
+static int isHit(unsigned long address);               // if the trace hit the cache
+static unsigned long getAddress(char *traceline);      // catch the address from the traceline
+static int readTraceFile(char *filename);     // read file
+static int isFull(int set);                   // is full
+static int findLargest(int set);              // find the largest recent
+static int getSet(unsigned long address);
+static void dataLoad(unsigned long address); // load
+static void othersup(int set, unsigned long address); // others recent ++ (so the lowest is the most recent one)
+
+static int getSet(unsigned long address)
+{
+    int a = (int)pow(2, _s);
+    return (int)(address % a);
+}
+
+// 1+4+8=13
+static void othersup(int set, unsigned long address)
+{
+    for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+    {
+        if (GETVALID(cache + 13 * i) == '1')
+        {
+            unsigned long thisaddr = ADDRESS(cache + 13 * i);
+
+            if ((int)getSet(thisaddr) == set)
+            {
+                if (thisaddr != address)
+                {
+                    RECENTUP(cache + 13 * i);
+                }
+                else
+                {
+                    *(int *)((char *)(cache + 13 * i + 1)) = 0;
+                    // break;
+                }
+            }
+        }
+    }
+}
+
+static void dataLoad(unsigned long address)
+{
+    int set = getSet(address);
+
+    if (isHit(address))
+    {
+        hits++;
+        othersup(set, address);
+    }
+    else
+    {
+        misses++;
+        int rmax = findLargest(set);
+        if (isFull(set))
+        {
+            evictions++;
+            for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+            {
+                unsigned long addr = ADDRESS(cache + 13 * i);
+                if (getSet(addr) == set)
+                {
+                    int recent = RECENT(cache + 13 * i);
+                    if (recent == rmax)
+                    {
+                        SETVALID(cache + 13 * i);
+                        SETADDRESS(cache + 13 * i, address);
+                        break;
+                    }
+                }
+            }
+            othersup(set, address);
+        }
+        else
+        {
+            for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+            {
+                unsigned long addr = ADDRESS(cache + 13 * i);
+                if (getSet(addr) == set)
+                {
+
+                    char valid = GETVALID(cache + 13 * i);
+                    if (valid != '1')
+                    {
+                        SETVALID(cache + 13 * i);
+                        SETADDRESS(cache + 13 * i, address);
+                        break;
+                    }
+                }
+            }
+
+            othersup(set, address);
+        }
+    }
+}
+
+static int findLargest(int set)
+{
+    int rmax = 0;
+
+    for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+    {
+        unsigned long addr = ADDRESS(cache + 13 * i);
+        if (getSet(addr) == set)
+        {
+            unsigned long recent = RECENT(cache + 13 * i);
+            if (recent > rmax)
+                rmax = recent;
+        }
+    }
+    return rmax;
+}
+
+static int isFull(int set)
+{
+    unsigned long addr = 0;
+    int count = 0;
+    for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+    {
+        addr = ADDRESS(cache + 13 * i);
+        if ((int)getSet(addr) == set)
+        {
+            count++;
+            char valid = GETVALID(cache + 13 * i);
+            if (valid != '1')
+            {
+                return 0;
+            }
+        }
+    }
+    if (count == 0)
+        return 0;
+    return 1;
+}
 
 static void getInput(int argc, char *argv[])
 {
     int ch;
-    // printf("\n\n");
-    // printf("optind:%d，opterr：%d\n", optind, opterr);
-    // printf("--------------------------\n");
+
     while ((ch = getopt(argc, argv, "vs:E:b:t:")) != -1)
     {
-        // printf("optind: %d\n", optind);
         switch (ch)
         {
         case 'v':
-            printf("HAVE option: -v\n\n");
             _v = 1;
             break;
         case 's':
             _s = atoi(optarg);
-            printf("HAVE option: -s\n");
-            printf("The argument of -s is %d\n\n", _s);
             break;
         case 'E':
             _E = atoi(optarg);
-            printf("HAVE option: -E\n");
-            printf("The argument of -E is %d\n\n", _E);
             break;
         case 'b':
             _b = atoi(optarg);
-            printf("HAVE option: -b\n");
-            printf("The argument of -b is %d\n\n", _b);
             break;
         case 't':
             strcpy(_t, optarg);
-            printf("HAVE option: -t\n");
-            printf("The argument of -t is %s\n\n", _t);
             break;
         case '?':
-            printf("Unknown option: %c\n", (char)optopt);
             break;
         }
     }
+}
+
+//  cache structure
+// |___________|_____________|________________________|
+//     1bytes       4bytes              8bytes
+//    isvalid      recently            content
+
+static void initCache()
+{
+    SetNumber = (int)pow(2, _s) * _E;
+
+    cachesize = SetNumber * (sizeof(char) + sizeof(int) + sizeof(unsigned long));
+
+    cache = (char *)malloc(cachesize);
+    memset(cache, 0, cachesize);
+
+    for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
+    {
+        SETADDRESS(cache + 13 * i, i / _E);
+    }
+}
+
+static unsigned long getAddress(char *traceline)
+{
+    int i = 3, j = 0;
+    char traAddr[1024];
+    while (i < 1024)
+    {
+        if (traceline[i] == ',')
+        {
+            traAddr[j] = '\0';
+            break;
+        }
+        traAddr[j] = traceline[i];
+        i++;
+        j++;
+    }
+
+    int num;
+    sscanf(traAddr, "%x", &num);
+
+    return num;
 }
 
 static int readTraceFile(char *filename)
 {
     FILE *trace;
     char traceLine[1024];
-    long traceAddr;
+    unsigned long traceAddr;
 
     if ((trace = fopen(filename, "r")) == NULL)
     {
@@ -94,9 +257,21 @@ static int readTraceFile(char *filename)
     {
         if (traceLine[0] != 'I' && traceLine[1] != ' ')
         {
-            traceAddr = getAddress(traceLine);
-            // printf("%ld\n", traceAddr);
-            printf("%d\n", isHit(traceAddr));
+            traceAddr = ((unsigned long)getAddress(traceLine) >> _b);
+
+            if (traceLine[1] == 'M')
+            {
+                dataLoad(traceAddr);
+                dataLoad(traceAddr);
+            }
+            else if (traceLine[1] == 'L')
+            {
+                dataLoad(traceAddr);
+            }
+            else
+            {
+                dataLoad(traceAddr);
+            }
         }
     }
 
@@ -104,50 +279,19 @@ static int readTraceFile(char *filename)
     return 0;
 }
 
-static void initCache()
+static int isHit(unsigned long address)
 {
-    SetNumber = (int)pow(2, _s);
-    cachesize = SetNumber * sizeof(long);
-
-    cache = (char *)malloc(cachesize);
-    memset(cache, 0, cachesize);
-
-    // printf("%ld\n",SetNumber * sizeof(long));
-
-    // for (int i = 0; i < 5; ++i)
-    // {
-    //     printf("%d\x20", ((int *)cache)[i]);
-    // }
-}
-
-static int isHit(long address)
-{
-    long valAddress = (long)(SETVALIDE(address));
-
-    for (int i = 0; i < (cachesize / (sizeof(long))); ++i)
-        if (((long *)cache)[i] == valAddress)
-            return 1;
-
-    return 0;
-}
-
-static long getAddress(char *traceline)
-{
-    int i = 3, j = 0;
-    char traAddr[1024];
-    while (i < 1024)
+    for (int i = 0; i < (cachesize / (sizeof(unsigned long) + sizeof(char) + sizeof(int))); i++)
     {
-        if (!isdigit(traceline[i]))
+        if (GETVALID(cache + 13 * i) == '1')
         {
-            traAddr[j] = '\0';
-            break;
+            unsigned long thisaddr = ADDRESS(cache + 13 * i);
+            if (thisaddr == address)
+                return 1;
         }
-        traAddr[j] = traceline[i];
-        i++;
-        j++;
     }
 
-    return atoi(traAddr);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -157,8 +301,7 @@ int main(int argc, char *argv[])
 
     readTraceFile(_t);
 
-    // printf("%ld\n",sizeof(long));
-
     printSummary(hits, misses, evictions);
+
     return 0;
 }
