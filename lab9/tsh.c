@@ -197,7 +197,10 @@ void eval(char *cmdline)
         if ((pid = fork()) == 0) // Child runs user job
         {
             sigprocmask(SIG_SETMASK, &prev_one, NULL);
-            pid = getpid();
+            // pid = getpid();
+            if (setpgid(0, 0) < 0)
+                unix_error("eval: setgpid failed.\n");
+
             if (execve(argv[0], argv, environ) < 0)
             {
                 printf("%s: Command not found \n", argv[0]);
@@ -208,32 +211,31 @@ void eval(char *cmdline)
         // Parent waits for foreground job to terminate
         if (!bg)
         {
-            int status;
+            sigprocmask(SIG_BLOCK, &mask_all, NULL);
+            addjob(jobs, pid, FG, cmdline);
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            // int status;
             // if (waitpid(pid, &status, 0) < 0)
             //     unix_error("waitfg: waitpid error");
 
-            while ((pid = waitpid(-1, &status, 0)) > 0)
-            {
-                if (!WIFEXITED(status))
-                    printf("child %d terminated abnormally\n", pid);
-            }
+            // while ((pid = waitpid(-1, &status, 0)) > 0)
+            // {
+            waitfg(pid);
+            // }
 
-            if (errno != ECHILD)
-                unix_error("waitpid error");
+            // if (errno != ECHILD)
+            //     unix_error("waitpid error");
         }
         else
         {
             sigprocmask(SIG_BLOCK, &mask_all, NULL);
             if (addjob(jobs, pid, BG, cmdline) > 0)
             {
-                struct job_t *j;
-                j = getjobpid(jobs, pid);
-
-                printf("[%d] (%d) %s", (*j).jid, (*j).pid, (*j).cmdline);
+                printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
             }
 
             sigprocmask(SIG_SETMASK, &prev_one, NULL);
-                }
+        }
     }
 
     return;
@@ -341,6 +343,19 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    // sigset_t mask_all, prev_all;
+
+    // sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+    // deletejob(jobs, pid);
+    // sigprocmask(SIG_SETMASK, &prev_all, NULL);
+
+    sigset_t prev;
+
+    while (!pid)
+        sigsuspend(&prev);
+
+    sigprocmask(SIG_SETMASK, &prev, NULL);
+
     return;
 }
 
@@ -357,7 +372,24 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
-    return;
+    pid_t pid;
+    int status,child_sig;
+    while((pid = waitpid(-1, &status, WUNTRACED | WNOHANG)) > 0 ){  
+        printf("Handling chlid proess %d\n", (int)pid);  
+        /*handle SIGTSTP*/  
+        if( WIFSTOPPED(status) )  
+            sigtstp_handler( WSTOPSIG(status) );  
+        /*handle child process interrupt by uncatched signal*/  
+        else if( WIFSIGNALED(status) ) {  
+            child_sig = WTERMSIG(status);  
+            if(child_sig == SIGINT)  
+                sigint_handler(child_sig);  
+        }  
+        else      
+            deletejob(jobs, pid);  
+    }  
+    return; 
+
 }
 
 /* 
@@ -367,6 +399,18 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig)
 {
+    pid_t pid;
+    pid = fgpid(jobs);
+
+    // printf("asfhqawf\n");
+
+    if (pid != 0)
+    {
+        printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, sig);
+        deletejob(jobs, pid);
+        kill(-pid, sig);
+    }
+
     return;
 }
 
@@ -377,6 +421,15 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
+    pid_t pid = fgpid(jobs);
+
+    if (pid != 0)
+    {
+        printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
+        (*getjobpid(jobs, pid)).state = ST;
+        ;
+        kill(-pid, sig);
+    }
     return;
 }
 
