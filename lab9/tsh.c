@@ -180,6 +180,12 @@ void eval(char *cmdline)
     int bg;              // Should the job run in bg or fg?
     pid_t pid;           // Process id
 
+    sigset_t mask_all, mask_one, prev_one;
+
+    sigfillset(&mask_all);
+    sigemptyset(&mask_one);
+    sigaddset(&mask_one, SIGCHLD);
+
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
     if (argv[0] == NULL)
@@ -187,8 +193,11 @@ void eval(char *cmdline)
 
     if (!builtin_cmd(argv))
     {
+        sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
         if ((pid = fork()) == 0) // Child runs user job
         {
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            pid = getpid();
             if (execve(argv[0], argv, environ) < 0)
             {
                 printf("%s: Command not found \n", argv[0]);
@@ -200,11 +209,31 @@ void eval(char *cmdline)
         if (!bg)
         {
             int status;
-            if (waitpid(pid, &status, 0) < 0)
-                unix_error("waitfg: waitpid error");
+            // if (waitpid(pid, &status, 0) < 0)
+            //     unix_error("waitfg: waitpid error");
+
+            while ((pid = waitpid(-1, &status, 0)) > 0)
+            {
+                if (!WIFEXITED(status))
+                    printf("child %d terminated abnormally\n", pid);
+            }
+
+            if (errno != ECHILD)
+                unix_error("waitpid error");
         }
         else
-            printf("%d %s", pid, cmdline);
+        {
+            sigprocmask(SIG_BLOCK, &mask_all, NULL);
+            if (addjob(jobs, pid, BG, cmdline) > 0)
+            {
+                struct job_t *j;
+                j = getjobpid(jobs, pid);
+
+                printf("[%d] (%d) %s", (*j).jid, (*j).pid, (*j).cmdline);
+            }
+
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+                }
     }
 
     return;
@@ -290,6 +319,7 @@ int builtin_cmd(char **argv)
     }
     else if (strcmp(argv[0], "jobs") == 0)
     {
+        listjobs(jobs);
         return 1;
     }
     else
