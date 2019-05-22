@@ -39,6 +39,7 @@ void echo(int connfd)
     while ((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0)
     {
         printf("server received %d bytes\n", (int)n);
+        printf("server received %s\n", buf);
         Rio_writen(connfd, buf, n);
     }
 }
