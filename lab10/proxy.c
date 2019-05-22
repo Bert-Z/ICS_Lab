@@ -13,17 +13,47 @@
  */
 int parse_uri(char *uri, char *target_addr, char *path, char *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, size_t size);
-
+void doit(int connfd);
+ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes);
+void Rio_writen_w(int fd, void *usrbuf, size_t n);
+ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen);
 
 /*
  * main - Main routine for the proxy program
  */
+// int main(int argc, char **argv)
+// {
+//     /* Check arguments */
+//     if (argc != 2)
+//     {
+//         fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+//         exit(0);
+//     }
+
+//     exit(0);
+// }
 int main(int argc, char **argv)
 {
-    /* Check arguments */
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+    int listenfd, connfd;
+    socklen_t clientlen;
+    struct sockaddr_storage clientaddr;
+    char client_hostname[MAXLINE], client_port[MAXLINE];
+
+    if (argc != 2)
+    {
+        fprintf(stderr, "usg: %s <port>\n", argv[0]);
         exit(0);
+    }
+
+    listenfd = Open_listenfd(argv[1]);
+    while (1)
+    {
+        clientlen = sizeof(struct sockaddr_storage);
+        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
+        printf("Connected to (%s , %s)\n", client_hostname, client_port);
+        doit(connfd);
+        Close(connfd);
     }
 
     exit(0);
@@ -45,7 +75,8 @@ int parse_uri(char *uri, char *hostname, char *pathname, char *port)
     char *pathbegin;
     int len;
 
-    if (strncasecmp(uri, "http://", 7) != 0) {
+    if (strncasecmp(uri, "http://", 7) != 0)
+    {
         hostname[0] = '\0';
         return -1;
     }
@@ -60,21 +91,26 @@ int parse_uri(char *uri, char *hostname, char *pathname, char *port)
     hostname[len] = '\0';
 
     /* Extract the port number */
-    if (*hostend == ':') {
+    if (*hostend == ':')
+    {
         char *p = hostend + 1;
         while (isdigit(*p))
             *port++ = *p++;
         *port = '\0';
-    } else {
+    }
+    else
+    {
         strcpy(port, "80");
     }
 
     /* Extract the path */
     pathbegin = strchr(hostbegin, '/');
-    if (pathbegin == NULL) {
+    if (pathbegin == NULL)
+    {
         pathname[0] = '\0';
     }
-    else {
+    else
+    {
         pathbegin++;
         strcpy(pathname, pathbegin);
     }
@@ -117,4 +153,49 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
     sprintf(logstring, "%s: %d.%d.%d.%d %s %zu", time_str, a, b, c, d, uri, size);
 }
 
+ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen)
+{
+    ssize_t rc;
 
+    if ((rc = rio_readlineb(rp, usrbuf, maxlen)) < 0)
+    {
+        fprintf(stderr, "%s: %s\n", "Rio_readlineb error", strerror(errno));
+        return 0;
+    }
+
+    return rc;
+}
+
+void Rio_writen_w(int fd, void *usrbuf, size_t n)
+{
+    if (rio_writen(fd, usrbuf, n) != n)
+        fprintf(stderr, "Rio_writen error", strerror(errno));
+}
+
+ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes)
+{
+    ssize_t n;
+
+    if ((n = rio_readn(fd, ptr, nbytes)) < 0)
+    {
+        fprintf(stderr, "Rio_readn error", strerror(errno));
+        return 0;
+    }
+    
+    return n;
+}
+
+void doit(int connfd)
+{
+    size_t n;
+    char buf[MAXLINE];
+    rio_t rio;
+
+    Rio_readinitb(&rio, connfd);
+    while ((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0)
+    {
+        printf("server received %d bytes\n", (int)n);
+        printf("server received %s\n", buf);
+        Rio_writen(connfd, buf, n);
+    }
+}
