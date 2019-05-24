@@ -16,7 +16,7 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, 
 // doit func
 void doit(int connfd);
 // some rio func without exit imediately
-ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes);
+ssize_t Rio_readnb_w(rio_t *rp, void *ptr, size_t nbytes);
 void Rio_writen_w(int fd, void *usrbuf, size_t n);
 ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen);
 // func for request headers
@@ -177,17 +177,13 @@ void Rio_writen_w(int fd, void *usrbuf, size_t n)
         fprintf(stderr, "Rio_writen error: %s\n", strerror(errno));
 }
 
-ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes)
+ssize_t Rio_readnb_w(rio_t *rp, void *usrbuf, size_t n)
 {
-    ssize_t n;
+    ssize_t rc;
 
-    if ((n = rio_readn(fd, ptr, nbytes)) < 0)
-    {
-        fprintf(stderr, "Rio_readn error: %s\n", strerror(errno));
-        return 0;
-    }
-
-    return n;
+    if ((rc = rio_readnb(rp, usrbuf, n)) < 0)
+        fprintf(stderr, "Rio_readnb error: %s\n", strerror(errno));
+    return rc;
 }
 
 void doit(int connfd)
@@ -248,7 +244,7 @@ void doit(int connfd)
         printf("%s", buf);
         Rio_writen_w(clientfd, buf, strlen(buf));
         // printf("%s", buf);
-        if (strcmp(buf, "\r\n") == 0)
+        if (!strcmp(buf, "\r\n"))
             break;
 
         // get the content length if method is not get
@@ -267,7 +263,7 @@ void doit(int connfd)
         {
             for (int i = 0; i < content_length; i++)
             {
-                if (Rio_readlineb_w(&rio, buf, 1) != 0)
+                if (Rio_readnb_w(&rio, buf, 1) != 0)
                 {
                     Rio_writen_w(clientfd, buf, 1);
                 }
@@ -281,7 +277,7 @@ void doit(int connfd)
                 printf("%s", buf);
                 Rio_writen_w(clientfd, buf, strlen(buf));
 
-                if (strcmp(buf, "\r\n") == 0)
+                if (!strcmp(buf, "\r\n"))
                     break;
             }
         }
@@ -291,29 +287,34 @@ void doit(int connfd)
 
     // response
     // response headers
+    printf("response: \n");
     while (Rio_readlineb_w(&client_rio, buf, MAXLINE) != 0)
     {
-        printf("response: %s", buf);
+        printf("%s", buf);
         Rio_writen_w(connfd, buf, MAXLINE);
 
-        if (strcmp(buf, "\r\n") == 0)
+        if (!strcmp(buf, "\r\n"))
+        {
+            printf("break\n");
             break;
+        }
 
         if (strncmp(buf, "Content-Length: ", 16) == 0)
         {
             sscanf(buf + 16, "%d", &content_length);
-            printf("content_length: %d\n", content_length);
+            printf("content_len: %d\n", content_length);
         }
     }
 
     // response body
-    if (content_length != 0)
+    if (content_length > 0)
     {
         printf("content not zero: ");
         for (int i = 0; i < content_length; i++)
         {
-            if (Rio_readlineb_w(&client_rio, buf, 1) != 0)
+            if (Rio_readnb_w(&client_rio, buf, 1) > 0)
             {
+                printf("%s",buf);
                 Rio_writen_w(connfd, buf, 1);
             }
         }
@@ -326,7 +327,7 @@ void doit(int connfd)
             printf("%s", buf);
             Rio_writen_w(connfd, buf, strlen(buf));
 
-            if (strcmp(buf, "\r\n") == 0)
+            if (!strcmp(buf, "\r\n"))
                 break;
         }
     }
