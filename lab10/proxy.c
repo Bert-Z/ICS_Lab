@@ -22,7 +22,7 @@ ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen);
 // func for request headers
 void read_requesthdrs(rio_t *rp);
 // client error msg
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+// void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 /*
  * main - Main routine for the proxy program
@@ -200,27 +200,35 @@ void doit(int connfd)
 
     // read from client
     Rio_readinitb(&rio, connfd);
-    Rio_readlineb_w(&rio, buf, MAXLINE);
+    if (Rio_readlineb_w(&rio, buf, MAXLINE) == 0)
+    {
+        fprintf(stderr, "Readline Wrong!\n");
+        Close(connfd);
+        return;
+    }
     printf("Request headers:\n");
     printf("%s", buf);
 
-    sscanf(buf, "%s %s %s", method, uri, version);
+    if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
+    {
+        fprintf(stderr, "Input Wrong!\n");
+        Close(connfd);
+        return;
+    }
     printf("method: %s  uri: %s  version: %s\n", method, uri, version);
 
     uri_state = parse_uri(uri, hostname, pathname, port);
+    if (uri_state < 0)
+    {
+        fprintf(stderr, "Uri Wrong!\n");
+        Close(connfd);
+        fprintf(stderr, "")
+    }
     printf("host: %s  pathname: %s  port: %s\n", hostname, pathname, port);
 
     read_requesthdrs(&rio);
 
-    if (uri_state < 0)
-    {
-        clienterror(connfd, uri, "404", "Not found", "Tiny couldn’t find this file");
-        return;
-    }
-
     // write to server
-    
-
 }
 
 void read_requesthdrs(rio_t *rp)
@@ -237,26 +245,26 @@ void read_requesthdrs(rio_t *rp)
     return;
 }
 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
-{
-    char buf[MAXLINE], body[MAXBUF];
+// void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
+// {
+//     char buf[MAXLINE], body[MAXBUF];
 
-    /* build the HTTP response body */
-    sprintf(body, "<html><title>Error</title>");
-    sprintf(body, "%s<body bgcolor="
-                  "ffffff"
-                  ">\r\n",
-            body);
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-    sprintf(body, "%s<hr><em>Tiny Web server</em>\r\n", body);
+//     /* build the HTTP response body */
+//     sprintf(body, "<html><title>Error</title>");
+//     sprintf(body, "%s<body bgcolor="
+//                   "ffffff"
+//                   ">\r\n",
+//             body);
+//     sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+//     sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+//     sprintf(body, "%s<hr><em>Tiny Web server</em>\r\n", body);
 
-    /* print the HTTP response */
-    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    Rio_writen(fd, body, strlen(body));
-}
+//     /* print the HTTP response */
+//     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+//     Rio_writen(fd, buf, strlen(buf));
+//     sprintf(buf, "Content-type: text/html\r\n");
+//     Rio_writen(fd, buf, strlen(buf));
+//     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
+//     Rio_writen(fd, buf, strlen(buf));
+//     Rio_writen(fd, body, strlen(body));
+// }
