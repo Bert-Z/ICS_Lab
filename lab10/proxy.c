@@ -195,7 +195,9 @@ void doit(int connfd)
     // size_t n;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char hostname[MAXLINE], pathname[MAXLINE], port[MAXLINE];
+    char request[MAXLINE];
     int uri_state = 0;
+    int content_length = 0;
     rio_t rio;
 
     // read from client
@@ -222,13 +224,67 @@ void doit(int connfd)
     {
         fprintf(stderr, "Uri Wrong!\n");
         Close(connfd);
-        fprintf(stderr, "")
+        return;
     }
-    printf("host: %s  pathname: %s  port: %s\n", hostname, pathname, port);
+    printf("hostname: %s  pathname: %s  port: %s\n", hostname, pathname, port);
 
-    read_requesthdrs(&rio);
+    // read_requesthdrs(&rio);
 
     // write to server
+    int clientfd;
+    rio_t client_rio;
+
+    clientfd = Open_clientfd(hostname, port);
+    Rio_readinitb(&client_rio, clientfd);
+
+    // request
+    sprintf(request, "%s /%s %s\r\n", method, pathname, version);
+    Rio_writen_w(clientfd, request, strlen(request));
+
+    // request headers
+    while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
+    {
+        Rio_writen_w(clientfd, buf, strlen(buf));
+        // printf("%s", buf);
+        if (strcmp(buf, "\r\n") == 0)
+            break;
+
+        // get the content length if method is not get
+        if (strncmp(buf, "Content-Length: ", 16))
+            sscanf(buf + 16, "%d", &content_length);
+    }
+
+    // request body
+    if (strcmp(method, "GET") != 0)
+    {
+        // read and write the content byte by byte
+        if (content_length != 0)
+        {
+            for (int i = 0; i < content_length; i++)
+            {
+                if (Rio_readlineb_w(&rio, buf, 1) != 0)
+                {
+                    Rio_writen_w(clientfd, buf, 1);
+                }
+            }
+        }
+        // if content_length == 0, read "\r\n" then end
+        else
+        {
+            while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
+            {
+                Rio_writen_w(clientfd, buf, strlen(buf));
+
+                if (strcmp(buf, "\r\n") == 0)
+                    break;
+            }
+        }
+    }
+
+    content_length = 0;
+
+    // response
+    
 }
 
 void read_requesthdrs(rio_t *rp)
