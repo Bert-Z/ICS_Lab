@@ -239,19 +239,24 @@ void doit(int connfd)
 
     // request
     sprintf(request, "%s /%s %s\r\n", method, pathname, version);
+    printf("request: %s", request);
     Rio_writen_w(clientfd, request, strlen(request));
 
     // request headers
     while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
     {
+        printf("%s", buf);
         Rio_writen_w(clientfd, buf, strlen(buf));
         // printf("%s", buf);
         if (strcmp(buf, "\r\n") == 0)
             break;
 
         // get the content length if method is not get
-        if (strncmp(buf, "Content-Length: ", 16))
+        if (strncmp(buf, "Content-Length: ", 16) == 0)
+        {
             sscanf(buf + 16, "%d", &content_length);
+            printf("content_length: %d\n", content_length);
+        }
     }
 
     // request body
@@ -273,6 +278,7 @@ void doit(int connfd)
         {
             while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
             {
+                printf("%s", buf);
                 Rio_writen_w(clientfd, buf, strlen(buf));
 
                 if (strcmp(buf, "\r\n") == 0)
@@ -284,7 +290,50 @@ void doit(int connfd)
     content_length = 0;
 
     // response
-    
+    // response headers
+    while (Rio_readlineb_w(&client_rio, buf, MAXLINE) != 0)
+    {
+        printf("response: %s", buf);
+        Rio_writen_w(connfd, buf, MAXLINE);
+
+        if (strcmp(buf, "\r\n") == 0)
+            break;
+
+        if (strncmp(buf, "Content-Length: ", 16) == 0)
+        {
+            sscanf(buf + 16, "%d", &content_length);
+            printf("content_length: %d\n", content_length);
+        }
+    }
+
+    // response body
+    if (content_length != 0)
+    {
+        printf("content not zero: ");
+        for (int i = 0; i < content_length; i++)
+        {
+            if (Rio_readlineb_w(&client_rio, buf, 1) != 0)
+            {
+                Rio_writen_w(connfd, buf, 1);
+            }
+        }
+    }
+    else
+    {
+        printf("content zero: ");
+        while (Rio_readlineb_w(&client_rio, buf, MAXLINE) != 0)
+        {
+            printf("%s", buf);
+            Rio_writen_w(connfd, buf, strlen(buf));
+
+            if (strcmp(buf, "\r\n") == 0)
+                break;
+        }
+    }
+
+    // Close(connfd);
+    Close(clientfd);
+    return;
 }
 
 void read_requesthdrs(rio_t *rp)
