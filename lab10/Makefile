@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -g
 LDFLAGS = -pthread
 
-all: proxy hostinfo echoclient echoserveri
+all: proxy hostinfo echoclient echoserveri tiny
 
 proxy.o: proxy.c csapp.h
 
@@ -18,9 +18,13 @@ echoclient.o: echoclient.c csapp.h
 
 echoserveri.o: echoserveri.c csapp.h
 
+tiny.o: tiny.c csapp.h
+
 echoclient:echoclient.o csapp.o
 
 echoserveri:echoserveri.o csapp.o
+
+tiny: tiny.o csapp.o
 
 clean:
 	rm -f *~ *.o proxy proxy.log

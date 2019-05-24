@@ -13,10 +13,16 @@
  */
 int parse_uri(char *uri, char *target_addr, char *path, char *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, size_t size);
+// doit func
 void doit(int connfd);
+// some rio func without exit imediately
 ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes);
 void Rio_writen_w(int fd, void *usrbuf, size_t n);
 ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen);
+// func for request headers
+void read_requesthdrs(rio_t *rp);
+// client error msg
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 /*
  * main - Main routine for the proxy program
@@ -58,7 +64,6 @@ int main(int argc, char **argv)
 
     exit(0);
 }
-
 
 /*
  * parse_uri - URI parser
@@ -159,7 +164,7 @@ ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen)
 
     if ((rc = rio_readlineb(rp, usrbuf, maxlen)) < 0)
     {
-        fprintf(stderr, "%s: %s\n", "Rio_readlineb error", strerror(errno));
+        fprintf(stderr, "Rio_readlineb error: %s\n", strerror(errno));
         return 0;
     }
 
@@ -169,7 +174,7 @@ ssize_t Rio_readlineb_w(rio_t *rp, void *usrbuf, size_t maxlen)
 void Rio_writen_w(int fd, void *usrbuf, size_t n)
 {
     if (rio_writen(fd, usrbuf, n) != n)
-        fprintf(stderr, "Rio_writen error", strerror(errno));
+        fprintf(stderr, "Rio_writen error: %s\n", strerror(errno));
 }
 
 ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes)
@@ -178,24 +183,80 @@ ssize_t Rio_readn_w(int fd, void *ptr, size_t nbytes)
 
     if ((n = rio_readn(fd, ptr, nbytes)) < 0)
     {
-        fprintf(stderr, "Rio_readn error", strerror(errno));
+        fprintf(stderr, "Rio_readn error: %s\n", strerror(errno));
         return 0;
     }
-    
+
     return n;
 }
 
 void doit(int connfd)
 {
-    size_t n;
-    char buf[MAXLINE];
+    // size_t n;
+    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
+    char hostname[MAXLINE], pathname[MAXLINE], port[MAXLINE];
+    int uri_state = 0;
     rio_t rio;
 
+    // read from client
     Rio_readinitb(&rio, connfd);
-    while ((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0)
+    Rio_readlineb_w(&rio, buf, MAXLINE);
+    printf("Request headers:\n");
+    printf("%s", buf);
+
+    sscanf(buf, "%s %s %s", method, uri, version);
+    printf("method: %s  uri: %s  version: %s\n", method, uri, version);
+
+    uri_state = parse_uri(uri, hostname, pathname, port);
+    printf("host: %s  pathname: %s  port: %s\n", hostname, pathname, port);
+
+    read_requesthdrs(&rio);
+
+    if (uri_state < 0)
     {
-        printf("server received %d bytes\n", (int)n);
-        printf("server received %s\n", buf);
-        Rio_writen(connfd, buf, n);
+        clienterror(connfd, uri, "404", "Not found", "Tiny couldn’t find this file");
+        return;
     }
+
+    // write to server
+    
+
+}
+
+void read_requesthdrs(rio_t *rp)
+{
+    char buf[MAXLINE];
+
+    Rio_readlineb(rp, buf, MAXLINE);
+    printf("%s", buf);
+    while (strcmp(buf, "\r\n"))
+    {
+        Rio_readlineb(rp, buf, MAXLINE);
+        printf("%s", buf);
+    }
+    return;
+}
+
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
+{
+    char buf[MAXLINE], body[MAXBUF];
+
+    /* build the HTTP response body */
+    sprintf(body, "<html><title>Error</title>");
+    sprintf(body, "%s<body bgcolor="
+                  "ffffff"
+                  ">\r\n",
+            body);
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+    sprintf(body, "%s<hr><em>Tiny Web server</em>\r\n", body);
+
+    /* print the HTTP response */
+    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Content-type: text/html\r\n");
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
+    Rio_writen(fd, buf, strlen(buf));
+    Rio_writen(fd, body, strlen(body));
 }

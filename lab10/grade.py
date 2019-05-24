@@ -346,7 +346,8 @@ def expect_resp_header_only(proc, resp, timeout=-1):
     if proc != None:
         line = helper_readline(proc)
         if line != resp.head_line:
-            raise MismatchException("Client got wrong response line", "%s %s HTTP/1.1" % (req.method, req.path), line)
+            #raise MismatchException("Client got wrong response line", "%s %s HTTP/1.1" % (req.method, req.path), line)
+            raise MismatchException("Client got wrong response line", "HTTP/1.1 %d %s\r\n"  % (resp.status, status_desc[resp.status]), line)
         for header in resp.headers:
             line = helper_readline(proc)
             if line != "%s: %s\r\n" % (header[0], header[1]):
@@ -928,7 +929,11 @@ def main():
         quiet = True
     strace = args.strace
     verbose = args.verbose
-    outside_proxy = args.outside
+    if args.outside != None:
+        outside_proxy = args.outside[0]
+    else:
+        outside_proxy = args.outside
+        
     if args.only == None:
         args.only = ["all"]
 
