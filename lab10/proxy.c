@@ -14,7 +14,7 @@
 int parse_uri(char *uri, char *target_addr, char *path, char *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, size_t size);
 // doit func
-void doit(int connfd);
+void doit(int connfd, struct sockaddr_in *clientaddr);
 // some rio func without exit imediately
 ssize_t Rio_readnb_w(rio_t *rp, void *ptr, size_t nbytes);
 void Rio_writen_w(int fd, void *usrbuf, size_t n);
@@ -42,7 +42,7 @@ int main(int argc, char **argv)
 {
     int listenfd, connfd;
     socklen_t clientlen;
-    struct sockaddr_storage clientaddr;
+    struct sockaddr_in clientaddr;
     char client_hostname[MAXLINE], client_port[MAXLINE];
 
     if (argc != 2)
@@ -58,7 +58,7 @@ int main(int argc, char **argv)
         connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
         Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
         printf("Connected to (%s , %s)\n", client_hostname, client_port);
-        doit(connfd);
+        doit(connfd, &clientaddr);
         Close(connfd);
     }
 
@@ -186,7 +186,7 @@ ssize_t Rio_readnb_w(rio_t *rp, void *usrbuf, size_t n)
     return rc;
 }
 
-void doit(int connfd)
+void doit(int connfd, struct sockaddr_in *clientaddr)
 {
     // size_t n;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -287,11 +287,16 @@ void doit(int connfd)
 
     // response
     // response headers
+    int log_size = 0;
+    char logstring[MAXLINE];
+    int n = 0;
+
     printf("response: \n");
-    while (Rio_readlineb_w(&client_rio, buf, MAXLINE) != 0)
+    while ((n = Rio_readlineb_w(&client_rio, buf, MAXLINE)) != 0)
     {
         printf("%s", buf);
-        Rio_writen_w(connfd, buf, MAXLINE);
+        Rio_writen_w(connfd, buf, n);
+        log_size += n;
 
         if (!strcmp(buf, "\r\n"))
         {
@@ -306,6 +311,10 @@ void doit(int connfd)
         }
     }
 
+    // add the empty line
+    // Rio_writen_w(connfd, "\r\n", 2);
+    // log_size += 2;
+
     // response body
     if (content_length > 0)
     {
@@ -314,24 +323,31 @@ void doit(int connfd)
         {
             if (Rio_readnb_w(&client_rio, buf, 1) > 0)
             {
-                printf("%s",buf);
+                // printf("%s", buf);
                 Rio_writen_w(connfd, buf, 1);
+                log_size++;
             }
         }
     }
     else
     {
         printf("content zero: ");
-        while (Rio_readlineb_w(&client_rio, buf, MAXLINE) != 0)
+        while ((n = Rio_readlineb_w(&client_rio, buf, MAXLINE)) != 0)
         {
             printf("%s", buf);
-            Rio_writen_w(connfd, buf, strlen(buf));
+            Rio_writen_w(connfd, buf, n);
+            log_size += n;
 
             if (!strcmp(buf, "\r\n"))
                 break;
         }
     }
 
+    FILE *fp = fopen("proxy.log", "a");
+    format_log_entry(logstring, clientaddr, uri, log_size);
+    printf("%s\n", logstring);
+    fwrite(&logstring, sizeof(logstring), 1, fp);
+    fclose(fp);
     // Close(connfd);
     Close(clientfd);
     return;
