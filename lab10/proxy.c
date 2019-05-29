@@ -201,7 +201,6 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     if (Rio_readlineb_w(&rio, buf, MAXLINE) == 0)
     {
         fprintf(stderr, "Readline Wrong!\n");
-        Close(connfd);
         return;
     }
     printf("Request headers:\n");
@@ -210,7 +209,6 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
     {
         fprintf(stderr, "Input Wrong!\n");
-        Close(connfd);
         return;
     }
     printf("method: %s  uri: %s  version: %s\n", method, uri, version);
@@ -219,7 +217,6 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     if (uri_state < 0)
     {
         fprintf(stderr, "Uri Wrong!\n");
-        Close(connfd);
         return;
     }
     printf("hostname: %s  pathname: %s  port: %s\n", hostname, pathname, port);
