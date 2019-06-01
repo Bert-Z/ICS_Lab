@@ -232,6 +232,7 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     int uri_state = 0;
     int content_length = 0;
     rio_t rio;
+    int n = 0;
 
     // read from client
     Rio_readinitb(&rio, connfd);
@@ -243,16 +244,16 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     printf("Request headers:\n");
     printf("%s", buf);
 
-    // if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
-    // {
-    //     fprintf(stderr, "Input Wrong!\n");
-    //     return;
-    // }
-    sscanf(buf, "%s %s %s", method, uri, version);
+    if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
+    {
+        fprintf(stderr, "Input Wrong!\n");
+        return;
+    }
+    // sscanf(buf, "%s %s %s", method, uri, version);
     printf("method: %s  uri: %s  version: %s\n", method, uri, version);
 
     uri_state = parse_uri(uri, hostname, pathname, port);
-    if (uri_state < 0)
+    if (uri_state != 0)
     {
         fprintf(stderr, "Uri Wrong!\n");
         return;
@@ -279,10 +280,10 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     Rio_writen_w(clientfd, request, strlen(request));
 
     // request headers
-    while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
+    while ((n = Rio_readlineb_w(&rio, buf, MAXLINE)) != 0)
     {
         printf("%s", buf);
-        Rio_writen_w(clientfd, buf, strlen(buf));
+        Rio_writen_w(clientfd, buf, n);
         // printf("%s", buf);
         if (!strcmp(buf, "\r\n"))
             break;
@@ -296,30 +297,28 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     }
 
     // request body
-    if (strcmp(method, "GET") != 0)
+
+    // read and write the content byte by byte
+    if (content_length != 0)
     {
-        // read and write the content byte by byte
-        if (content_length != 0)
+        for (int i = 0; i < content_length; i++)
         {
-            for (int i = 0; i < content_length; i++)
+            if (Rio_readnb_w(&rio, buf, 1) != 0)
             {
-                if (Rio_readnb_w(&rio, buf, 1) != 0)
-                {
-                    Rio_writen_w(clientfd, buf, 1);
-                }
+                Rio_writen_w(clientfd, buf, 1);
             }
         }
-        // if content_length == 0, read "\r\n" then end
-        else
+    }
+    // if content_length == 0, read "\r\n" then end
+    else
+    {
+        while ((n = Rio_readlineb_w(&rio, buf, MAXLINE)) != 0)
         {
-            while (Rio_readlineb_w(&rio, buf, MAXLINE) != 0)
-            {
-                printf("%s", buf);
-                Rio_writen_w(clientfd, buf, strlen(buf));
+            printf("%s", buf);
+            Rio_writen_w(clientfd, buf, n);
 
-                if (!strcmp(buf, "\r\n"))
-                    break;
-            }
+            if (!strcmp(buf, "\r\n"))
+                break;
         }
     }
 
@@ -329,10 +328,9 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     // response headers
     int log_size = 0;
     char logstring[MAXLINE];
-    int n = 0;
 
     printf("response: \n");
-    while ((n = Rio_readlineb_w(&client_rio, buf, MAXLINE)) != 0)
+    while ((n = Rio_readlineb_w(&client_rio, buf, MAXLINE)) != 0 && strcmp("\r\n", buf))
     {
         printf("%s", buf);
         Rio_writen_w(connfd, buf, n);
