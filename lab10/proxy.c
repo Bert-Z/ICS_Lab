@@ -243,11 +243,12 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     printf("Request headers:\n");
     printf("%s", buf);
 
-    if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
-    {
-        fprintf(stderr, "Input Wrong!\n");
-        return;
-    }
+    // if (sscanf(buf, "%s %s %s", method, uri, version) != 3)
+    // {
+    //     fprintf(stderr, "Input Wrong!\n");
+    //     return;
+    // }
+    sscanf(buf, "%s %s %s", method, uri, version)
     printf("method: %s  uri: %s  version: %s\n", method, uri, version);
 
     uri_state = parse_uri(uri, hostname, pathname, port);
