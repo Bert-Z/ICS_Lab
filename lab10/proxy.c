@@ -248,7 +248,7 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     //     fprintf(stderr, "Input Wrong!\n");
     //     return;
     // }
-    sscanf(buf, "%s %s %s", method, uri, version)
+    sscanf(buf, "%s %s %s", method, uri, version);
     printf("method: %s  uri: %s  version: %s\n", method, uri, version);
 
     uri_state = parse_uri(uri, hostname, pathname, port);
