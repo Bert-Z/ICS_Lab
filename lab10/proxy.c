@@ -216,7 +216,10 @@ ssize_t Rio_readnb_w(rio_t *rp, void *usrbuf, size_t n)
     ssize_t rc;
 
     if ((rc = rio_readnb(rp, usrbuf, n)) < 0)
+    {
         fprintf(stderr, "Rio_readnb error: %s\n", strerror(errno));
+        rc = 0;
+    }
     return rc;
 }
 
