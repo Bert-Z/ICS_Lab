@@ -1,13 +1,16 @@
 #include "csapp.h"
 
 void echo(int connfd);
+void *thread(void *vargp);
 
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    // int listenfd, connfd;
+    int listenfd, *connfdp;
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
-    char client_hostname[MAXLINE], client_port[MAXLINE];
+    pthread_t tid;
+    // char client_hostname[MAXLINE], client_port[MAXLINE];
 
     if (argc != 2)
     {
@@ -16,17 +19,33 @@ int main(int argc, char **argv)
     }
 
     listenfd = Open_listenfd(argv[1]);
+
     while (1)
     {
+        // clientlen = sizeof(struct sockaddr_storage);
+        // connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        // Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
+        // printf("Connected to (%s , %s)\n", client_hostname, client_port);
+        // echo(connfd);
+        // Close(connfd);
+
         clientlen = sizeof(struct sockaddr_storage);
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
-        printf("Connected to (%s , %s)\n", client_hostname, client_port);
-        echo(connfd);
-        Close(connfd);
+        connfdp = Malloc(sizeof(int));
+        *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Pthread_create(&tid, NULL, thread, connfdp);
     }
 
     exit(0);
+}
+
+void *thread(void *vargp)
+{
+    int connfd = *((int *)vargp);
+    Pthread_detach(Pthread_self());
+    Free(vargp);
+    echo(connfd);
+    Close(connfd);
+    return NULL;
 }
 
 void echo(int connfd)
@@ -36,10 +55,11 @@ void echo(int connfd)
     rio_t rio;
 
     Rio_readinitb(&rio, connfd);
-    while ((n = Rio_readnb(&rio, buf, MAXLINE)) != 0)
-    {
-        // printf("server received %d bytes\n", (int)n);
-        printf("server received %s\n", buf);
-        Rio_writen(connfd, buf, n);
-    }
+    n = Rio_readnb(&rio, buf, MAXLINE);
+    // while ((n = Rio_readnb(&rio, buf, MAXLINE)) != 0)
+    // {
+    // printf("server received %d bytes\n", (int)n);
+    printf("server received %s\n", buf);
+    Rio_writen(connfd, buf, n);
+    // }
 }

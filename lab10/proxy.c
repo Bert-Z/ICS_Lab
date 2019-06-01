@@ -11,6 +11,7 @@
 /*
  * Function prototypes
  */
+void *thread(void *vargp);
 int parse_uri(char *uri, char *target_addr, char *path, char *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, size_t size);
 // doit func
@@ -24,26 +25,49 @@ void read_requesthdrs(rio_t *rp);
 // client error msg
 // void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
+struct cargs
+{
+    int connfd;
+    struct sockaddr_in clientaddr;
+};
+
+sem_t mutex;
+
 /*
  * main - Main routine for the proxy program
  */
-// int main(int argc, char **argv)
-// {
-//     /* Check arguments */
-//     if (argc != 2)
-//     {
-//         fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
-//         exit(0);
-//     }
-
-//     exit(0);
-// }
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    // // int listenfd, connfd;
+    // socklen_t clientlen;
+    // // struct sockaddr_in clientaddr;
+    // struct cargs newcarg;
+    // char client_hostname[MAXLINE], client_port[MAXLINE];
+
+    // if (argc != 2)
+    // {
+    //     fprintf(stderr, "usg: %s <port>\n", argv[0]);
+    //     exit(0);
+    // }
+
+    // newcarg.listenfd = Open_listenfd(argv[1]);
+    // while (1)
+    // {
+    //     clientlen = sizeof(struct sockaddr_in);
+    //     newcarg.connfd = Accept(newcarg.listenfd, (SA *)&(newcarg.clientaddr), &clientlen);
+    //     Getnameinfo((SA *)&(newcarg.clientaddr), clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
+    //     printf("Connected to (%s , %s)\n", client_hostname, client_port);
+    //     doit(newcarg.connfd, &(newcarg.clientaddr));
+    //     Close(newcarg.connfd);
+    // }
+
+    // exit(0);
+
+    int listenfd;
+    struct cargs *newcarg;
     socklen_t clientlen;
-    struct sockaddr_in clientaddr;
-    char client_hostname[MAXLINE], client_port[MAXLINE];
+    // char client_hostname[MAXLINE], client_port[MAXLINE];
+    pthread_t tid;
 
     if (argc != 2)
     {
@@ -51,18 +75,28 @@ int main(int argc, char **argv)
         exit(0);
     }
 
+    Sem_init(&mutex, 0, 1);
+
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
-        clientlen = sizeof(struct sockaddr_storage);
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, MAXLINE, client_port, MAXLINE, 0);
-        printf("Connected to (%s , %s)\n", client_hostname, client_port);
-        doit(connfd, &clientaddr);
-        Close(connfd);
+        clientlen = sizeof(struct sockaddr_in);
+        // connfdp = Malloc(sizeof(int));
+        newcarg = Malloc(sizeof(struct cargs));
+        newcarg->connfd = Accept(listenfd, (SA *)&(newcarg->clientaddr), &clientlen);
+        Pthread_create(&tid, NULL, thread, newcarg);
     }
+}
 
-    exit(0);
+void *thread(void *vargp)
+{
+    struct cargs thecarg = *((struct cargs *)vargp);
+    int connfd = thecarg.connfd;
+    Pthread_detach(Pthread_self());
+    Free(vargp);
+    doit(connfd, &(thecarg.clientaddr));
+    Close(connfd);
+    return NULL;
 }
 
 /*
@@ -227,7 +261,12 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
     int clientfd;
     rio_t client_rio;
 
-    clientfd = Open_clientfd(hostname, port);
+    if ((clientfd = open_clientfd(hostname, port)) == -1)
+    {
+        fprintf(stderr, "connect server error\n");
+        return;
+    }
+
     Rio_readinitb(&client_rio, clientfd);
 
     // request
@@ -340,11 +379,13 @@ void doit(int connfd, struct sockaddr_in *clientaddr)
         }
     }
 
+    P(&mutex);
     FILE *fp = fopen("proxy.log", "a");
     format_log_entry(logstring, clientaddr, uri, log_size);
     printf("%s\n", logstring);
     fwrite(&logstring, sizeof(logstring), 1, fp);
     fclose(fp);
+    V(&mutex);
     // Close(connfd);
     Close(clientfd);
     return;
@@ -363,27 +404,3 @@ void read_requesthdrs(rio_t *rp)
     }
     return;
 }
-
-// void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
-// {
-//     char buf[MAXLINE], body[MAXBUF];
-
-//     /* build the HTTP response body */
-//     sprintf(body, "<html><title>Error</title>");
-//     sprintf(body, "%s<body bgcolor="
-//                   "ffffff"
-//                   ">\r\n",
-//             body);
-//     sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-//     sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-//     sprintf(body, "%s<hr><em>Tiny Web server</em>\r\n", body);
-
-//     /* print the HTTP response */
-//     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-//     Rio_writen(fd, buf, strlen(buf));
-//     sprintf(buf, "Content-type: text/html\r\n");
-//     Rio_writen(fd, buf, strlen(buf));
-//     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-//     Rio_writen(fd, buf, strlen(buf));
-//     Rio_writen(fd, body, strlen(body));
-// }

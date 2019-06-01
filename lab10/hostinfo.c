@@ -1,30 +1,30 @@
 #include "csapp.h"
 
+#define N 2
+void *thread(void *vargp);
+
+char **ptr;
 int main(int argc, char **argv)
 {
-    struct addrinfo *p, *listp, hints;
-    char buf[MAXLINE];
-    int  flags;
+    int i;
+    pthread_t tid;
+    char *msgs[N] = {
+        "Hello from foo",
+        "Hello from bar"};
 
-    if (argc != 2)
+    ptr = msgs;
+    for (i = 0; i < N; i++)
     {
-        fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
-        exit(0);
+        Pthread_create(&tid, NULL, thread, (void *)i);
     }
 
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    Getaddrinfo(argv[1], NULL, &hints, &listp);
+    Pthread_exit(NULL);
+}
 
-    flags = NI_NUMERICHOST;
-    for (p = listp; p; p = p->ai_next)
-    {
-        Getnameinfo(p->ai_addr, p->ai_addrlen, buf, MAXLINE, NULL, 0, flags);
-        printf("%s\n", buf);
-    }
-
-    Freeaddrinfo(listp);
-
-    exit(0);
+void *thread(void *vargp)
+{
+    int myid = (int)vargp;
+    static int cnt = 0;
+    printf("[%d]: %s (cnt=%d)\n", myid, ptr[myid], ++cnt);
+    return NULL;
 }
